@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="hi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Image → PNG Converter</title>
+  <style>
+    :root{
+      --bg:#0f1724; --card:#0b1220; --accent:#06b6d4; --muted:#94a3b8; --radius:12px;
+    }
+    *{box-sizing:border-box;font-family:Inter,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial;}
+    body{
+      margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+      background:linear-gradient(180deg,#071029 0%, #071827 100%); color:#e6eef6; padding:28px;
+    }
+    .card{
+      width:100%; max-width:920px; background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      border-radius:var(--radius); padding:20px; box-shadow: 0 10px 30px rgba(2,6,23,0.6);
+      border:1px solid rgba(255,255,255,0.03);
+    }
+    h1{margin:0 0 6px 0; font-size:20px;}
+    p.lead{margin:0 0 18px 0; color:var(--muted); font-size:14px;}
+    .row{display:flex; gap:16px; flex-wrap:wrap;}
+    .left{flex:1 1 360px; min-width:260px;}
+    .right{width:320px; min-width:260px;}
+    .drop{
+      border:2px dashed rgba(255,255,255,0.06); border-radius:10px; padding:22px; text-align:center;
+      background:linear-gradient(180deg, rgba(255,255,255,0.01), transparent);
+    }
+    .drop.dragging{border-color:var(--accent); box-shadow:0 6px 18px rgba(6,182,212,0.06);}
+    .drop input{display:none;}
+    .btn{
+      display:inline-block; padding:10px 14px; border-radius:8px; cursor:pointer;
+      background:linear-gradient(90deg,var(--accent), #90e0f2); color:#012; font-weight:600; border:none;
+      box-shadow:0 6px 20px rgba(6,182,212,0.12);
+    }
+    .muted{color:var(--muted); font-size:13px;}
+    canvas{width:100%; border-radius:8px; background:rgba(255,255,255,0.02); display:block; margin-top:12px;}
+    label.opt{display:flex; align-items:center; gap:8px; margin-top:10px; font-size:13px;}
+    input[type="number"]{width:120px; padding:8px; border-radius:8px; border:none; background:rgba(255,255,255,0.02); color:inherit;}
+    .controls{display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; align-items:center;}
+    .download{display:inline-flex; gap:8px; align-items:center; padding:10px 12px; border-radius:8px; background:#10b981; color:#032; font-weight:700; text-decoration:none;}
+    footer{margin-top:14px; color:var(--muted); font-size:13px;}
+    @media (max-width:880px){
+      .row{flex-direction:column;}
+      .right{width:100%;}
+    }
+  </style>
+</head>
+<body>
+  <div class="card" role="main">
+    <h1>Image → PNG Converter</h1>
+    <p class="lead">Koi bhi image (.jpg, .webp, .gif, .bmp, etc.) upload karo aur ise PNG format mein convert karke download karo. Sab client-side mein hota hai — koi file server pe nahi jaati.</p>
+
+    <div class="row">
+      <div class="left">
+        <div id="drop" class="drop" tabindex="0">
+          <strong id="dropText">Image drag & drop karo ya select karo</strong>
+          <div style="margin-top:12px;">
+            <label class="btn" for="fileInput">Choose Image</label>
+            <input id="fileInput" type="file" accept="image/*" />
+          </div>
+          <p class="muted" style="margin-top:10px;">Supported: JPG, JPEG, PNG, WEBP, GIF (first frame), BMP. Max ~50MB (browser limits).</p>
+        </div>
+
+        <div style="margin-top:14px;">
+          <label class="muted">Preview:</label>
+          <canvas id="canvas" width="800" height="450" aria-label="Image preview canvas"></canvas>
+        </div>
+      </div>
+
+      <div class="right">
+        <div>
+          <label class="muted">Options:</label>
+
+          <label class="opt"><input id="keepAspect" type="checkbox" checked /> Maintain aspect ratio</label>
+          <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+            <label class="muted">Width (px):</label>
+            <input id="widthInput" type="number" placeholder="Original" min="1" />
+            <label class="muted">Height (px):</label>
+            <input id="heightInput" type="number" placeholder="Original" min="1" />
+          </div>
+
+          <label class="opt"><input id="transparentBG" type="checkbox" /> Transparent background (if original has transparency)</label>
+          <p class="muted" style="margin-top:6px;">Agar transparent nahi chahiye to background fill ke liye unchecked rakho — white fill hoga.</p>
+
+          <div class="controls" style="margin-top:10px;">
+            <button id="convertBtn" class="btn">Convert to PNG</button>
+            <a id="downloadLink" class="download" style="display:none;" download="converted.png">Download PNG</a>
+          </div>
+
+          <div style="margin-top:12px;">
+            <label class="muted">Filename:</label>
+            <input id="filename" type="text" placeholder="converted.png" style="width:100%; padding:8px; border-radius:8px; background:rgba(255,255,255,0.02); border:none; color:inherit; margin-top:6px;" />
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <footer>Made with ❤️ — Client-side. Agar aap multiple images batch convert chahte ho ya WebP→PNG lossless options chahiye to batao.</footer>
+  </div>
+
+  <script>
+    // Elements
+    const drop = document.getElementById('drop');
+    const fileInput = document.getElementById('fileInput');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const convertBtn = document.getElementById('convertBtn');
+    const downloadLink = document.getElementById('downloadLink');
+    const widthInput = document.getElementById('widthInput');
+    const heightInput = document.getElementById('heightInput');
+    const keepAspect = document.getElementById('keepAspect');
+    const transparentBG = document.getElementById('transparentBG');
+    const filenameInput = document.getElementById('filename');
+    const dropText = document.getElementById('dropText');
+
+    let currentImage = null;
+    let originalWidth = 0;
+    let originalHeight = 0;
+    let objectUrlForDownload = null;
+
+    // Helpers
+    function resetCanvasPlaceholder() {
+      canvas.width = 800;
+      canvas.height = 450;
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle = 'rgba(255,255,255,0.02)';
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '16px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText('Preview appears here after selecting an image', canvas.width/2, canvas.height/2);
+    }
+
+    resetCanvasPlaceholder();
+
+    function loadImageFile(file) {
+      if (!file || !file.type.startsWith('image')) {
+        alert('Please select a valid image file.');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          currentImage = img;
+          originalWidth = img.naturalWidth;
+          originalHeight = img.naturalHeight;
+
+          // set canvas size to image (display scaled via CSS) for good quality
+          canvas.width = originalWidth;
+          canvas.height = originalHeight;
+          // Draw initial preview
+          drawToCanvas(img, originalWidth, originalHeight, transparentBG.checked);
+          // set placeholder filename
+          const defaultName = (file.name || 'image').replace(/\.[^/.]+$/, '') + '.png';
+          filenameInput.value = defaultName;
+          dropText.textContent = 'Image ready — preview shown below';
+        };
+        img.onerror = () => alert('Unable to load image. File may be corrupted or unsupported.');
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function drawToCanvas(img, w, h, useTransparent) {
+      // Optionally fill background
+      canvas.width = w;
+      canvas.height = h;
+      if (!useTransparent) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0,0,w,h);
+      } else {
+        ctx.clearRect(0,0,w,h); // transparent
+      }
+      // Draw image centered to fit (if sizes may differ)
+      ctx.drawImage(img, 0, 0, w, h);
+    }
+
+    // File input change
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files && e.target.files[0]) {
+        loadImageFile(e.target.files[0]);
+      }
+    });
+
+    // Drag & drop
+    ['dragenter','dragover'].forEach(ev => {
+      drop.addEventListener(ev, (e) => {
+        e.preventDefault(); e.stopPropagation();
+        drop.classList.add('dragging');
+      });
+    });
+    ['dragleave','drop'].forEach(ev => {
+      drop.addEventListener(ev, (e) => {
+        e.preventDefault(); e.stopPropagation();
+        drop.classList.remove('dragging');
+      });
+    });
+    drop.addEventListener('drop', (e) => {
+      const dt = e.dataTransfer;
+      if (dt && dt.files && dt.files[0]) {
+        loadImageFile(dt.files[0]);
+      }
+    });
+
+    // Convert button
+    convertBtn.addEventListener('click', async () => {
+      if (!currentImage) {
+        alert('Pehle koi image select karo.');
+        return;
+      }
+
+      // Determine target size
+      let targetW = parseInt(widthInput.value) || originalWidth;
+      let targetH = parseInt(heightInput.value) || originalHeight;
+
+      if (keepAspect.checked) {
+        // maintain aspect ratio based on width or height input (if provided)
+        if (widthInput.value && !heightInput.value) {
+          const ratio = targetW / originalWidth;
+          targetH = Math.round(originalHeight * ratio);
+        } else if (!widthInput.value && heightInput.value) {
+          const ratio = targetH / originalHeight;
+          targetW = Math.round(originalWidth * ratio);
+        } else if (widthInput.value && heightInput.value) {
+          // both provided -> fit into box while preserving aspect
+          const ratioW = targetW / originalWidth;
+          const ratioH = targetH / originalHeight;
+          const r = Math.min(ratioW, ratioH);
+          targetW = Math.round(originalWidth * r);
+          targetH = Math.round(originalHeight * r);
+        } else {
+          // neither provided -> original
+          targetW = originalWidth;
+          targetH = originalHeight;
+        }
+      } else {
+        // not keeping aspect: if user left blank, use original
+        if (!widthInput.value) targetW = originalWidth;
+        if (!heightInput.value) targetH = originalHeight;
+      }
+
+      // Put image into an offscreen canvas at desired size and export PNG
+      const off = document.createElement('canvas');
+      off.width = targetW;
+      off.height = targetH;
+      const octx = off.getContext('2d', { willReadFrequently: true });
+
+      if (!transparentBG.checked) {
+        octx.fillStyle = '#ffffff';
+        octx.fillRect(0,0,targetW,targetH);
+      } else {
+        octx.clearRect(0,0,targetW,targetH);
+      }
+      octx.drawImage(currentImage, 0, 0, targetW, targetH);
+
+      // preview update
+      canvas.width = targetW;
+      canvas.height = targetH;
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.drawImage(off, 0, 0);
+
+      // convert to blob and create download link
+      off.toBlob((blob) => {
+        if (!blob) { alert('PNG conversion failed.'); return; }
+
+        // revoke previous object URL if any
+        if (objectUrlForDownload) URL.revokeObjectURL(objectUrlForDownload);
+        objectUrlForDownload = URL.createObjectURL(blob);
+
+        // filename
+        let fname = (filenameInput.value || 'converted.png').trim();
+        if (!/\.png$/i.test(fname)) fname += '.png';
+
+        downloadLink.href = objectUrlForDownload;
+        downloadLink.download = fname;
+        downloadLink.style.display = 'inline-flex';
+        downloadLink.textContent = 'Download ' + fname;
+        downloadLink.focus();
+      }, 'image/png');
+    });
+
+    // Accessibility: allow click on drop area to open file selector
+    drop.addEventListener('click', () => fileInput.click());
+    drop.addEventListener('keypress', (e) => { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); });
+
+    // Clean up URL on page unload
+    window.addEventListener('beforeunload', () => {
+      if (objectUrlForDownload) URL.revokeObjectURL(objectUrlForDownload);
+    });
+
+    // Optional: support paste from clipboard
+    window.addEventListener('paste', (ev) => {
+      const items = ev.clipboardData && ev.clipboardData.items;
+      if (!items) return;
+      for (let i=0;i<items.length;i++){
+        const it = items[i];
+        if (it.type && it.type.startsWith('image')) {
+          const file = it.getAsFile();
+          if (file) loadImageFile(file);
+          return;
+        }
+      }
+    });
+  </script>
+</body>
+</html>
+
+ <script type='text/javascript' src='//pl27581740.revenuecpmgate.com/41/f8/74/41f8743c1f6b404ac0307b0404112eaf.js'></script>
